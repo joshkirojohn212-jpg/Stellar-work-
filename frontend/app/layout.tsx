@@ -37,6 +37,8 @@ export default function RootLayout({
             <nav className="flex items-center gap-4 text-sm">
               <Link className="hover:underline" href="/">Jobs</Link>
               <Link className="hover:underline" href="/post-job">Post Job</Link>
+              <Link className="hover:underline" href="/dashboard">Dashboard</Link>
+              <Link className="hover:underline" href="/admin">Admin</Link>
             </nav>
           </div>
         </header>

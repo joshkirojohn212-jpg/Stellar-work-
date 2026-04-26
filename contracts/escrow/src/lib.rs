@@ -615,7 +615,7 @@ mod test {
     }
 
     #[test]
-    #[should_panic]
+    #[should_panic(expected = "Error(Contract, #3)")]
     fn approve_fails_in_wrong_status() {
         let (env, client, _, user, _, native_token) = setup();
         let job_id = client.post_job(&user, &1_000_000i128, &hash(&env), &0u64, &native_token);
@@ -953,5 +953,33 @@ mod test {
     fn get_native_token_returns_configured() {
         let (_, client, _, _, _, native_token) = setup();
         assert_eq!(client.get_native_token(), native_token);
+    }
+
+    #[test]
+    #[should_panic(expected = "Error(Contract, #6)")]
+    fn post_job_with_past_deadline_fails() {
+        let (env, client, _, user, _, native_token) = setup();
+        let past_deadline = 1_710_000_000 - 3600;
+        client.post_job(&user, &1_000_000i128, &hash(&env), &past_deadline, &native_token);
+    }
+
+    #[test]
+    fn post_job_with_future_deadline_succeeds() {
+        let (env, client, _, user, _, native_token) = setup();
+        let future_deadline = 1_710_000_000 + 86_400;
+        let job_id =
+            client.post_job(&user, &1_000_000i128, &hash(&env), &future_deadline, &native_token);
+        let job = client.get_job(&job_id);
+        assert_eq!(job.status, JobStatus::Open);
+        assert_eq!(job.deadline, future_deadline);
+    }
+
+    #[test]
+    fn post_job_with_zero_deadline_succeeds() {
+        let (env, client, _, user, _, native_token) = setup();
+        let job_id = client.post_job(&user, &1_000_000i128, &hash(&env), &0u64, &native_token);
+        let job = client.get_job(&job_id);
+        assert_eq!(job.status, JobStatus::Open);
+        assert_eq!(job.deadline, 0);
     }
 }
