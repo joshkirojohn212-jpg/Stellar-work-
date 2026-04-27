@@ -28,6 +28,16 @@ const getNetworkPassphrase = () =>
     ? Networks.PUBLIC
     : Networks.TESTNET;
 
+const DEFAULT_POLL_TIMEOUT = 30000;
+const DEFAULT_POLL_INTERVAL = 3000;
+
+interface TransactionResult {
+  status: "SUCCESS" | "ERROR" | "PENDING";
+  hash?: string;
+  errorResultXdr?: string;
+  resultMetaXdr?: string;
+}
+
 export async function connectWallet(): Promise<string> {
   const access = await requestAccess();
   if (access.error || !access.address) {
@@ -61,8 +71,8 @@ export async function callContract(
   contractId: string,
   method: string,
   args: xdr.ScVal[],
-  options?: { readOnly?: boolean },
-): Promise<unknown> {
+  options?: { readOnly?: boolean; pollTimeout?: number },
+): Promise<TransactionResult> {
   const server = new rpc.Server(getRpcUrl());
   const networkPassphrase = getNetworkPassphrase();
   const contract = new Contract(contractId);
@@ -101,9 +111,9 @@ export async function callContract(
   if (options?.readOnly) {
     const retval = simulation.result?.retval;
     if (!retval) {
-      return null;
+      return { status: "ERROR", errorResultXdr: "No return value from simulation" };
     }
-    return scValToNative(retval);
+    return { status: "SUCCESS", resultMetaXdr: scValToNative(retval) as string };
   }
 
   const assembled = rpc.assembleTransaction(tx, simulation).build();
@@ -117,14 +127,33 @@ export async function callContract(
   }
 
   if (sent.status === "PENDING") {
-    return sent;
+    const pollTimeout = options?.pollTimeout ?? DEFAULT_POLL_TIMEOUT;
+    const pollInterval = DEFAULT_POLL_INTERVAL;
+    const startTime = Date.now();
+
+    while (Date.now() - startTime < pollTimeout) {
+      await new Promise((resolve) => setTimeout(resolve, pollInterval));
+      const status = await server.getTransaction(sent.hash);
+
+      if (status.status === "SUCCESS") {
+        return { status: "SUCCESS", hash: sent.hash };
+      }
+
+      if (status.status === "ERROR") {
+        return {
+          status: "ERROR",
+          hash: sent.hash,
+          errorResultXdr: status.errorResultXdr ?? "Transaction failed.",
+        };
+      }
+    }
+
+    throw new Error(
+      `Transaction timed out after ${pollTimeout}ms. Hash: ${sent.hash}`,
+    );
   }
 
-  if ("resultMetaXdr" in sent && sent.resultMetaXdr) {
-    return sent;
-  }
-
-  return sent;
+  return { status: "SUCCESS", hash: sent.hash };
 }
 
 export function decodeScVal<T = unknown>(value: xdr.ScVal): T {

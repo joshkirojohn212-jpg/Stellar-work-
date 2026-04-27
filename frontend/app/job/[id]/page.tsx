@@ -13,6 +13,7 @@ export default function JobDetailPage() {
   const [job, setJob] = useState<Job | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [statusMsg, setStatusMsg] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
 
   const load = async () => {
     try {
@@ -39,19 +40,24 @@ export default function JobDetailPage() {
   async function handleAction(action: () => Promise<unknown>) {
     setError(null);
     setStatusMsg(null);
+    setLoading(true);
     if (!wallet) {
       try {
         await connectWallet();
       } catch {
         setError("Failed to connect wallet. Is Freighter installed?");
+        setLoading(false);
       }
       return;
     }
     try {
       await action();
       await load();
+      setStatusMsg("Action completed successfully.");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Transaction failed.");
+    } finally {
+      setLoading(false);
     }
   }
 
@@ -76,37 +82,41 @@ export default function JobDetailPage() {
           <div className="mt-4 flex flex-wrap gap-2">
             {wallet && job.status === "Open" && (
               <button
-                className="rounded-md border border-slate-300 px-3 py-1.5"
+                className="rounded-md border border-slate-300 px-3 py-1.5 disabled:opacity-50"
                 onClick={() => handleAction(() => acceptJob(wallet, id))}
+                disabled={loading}
               >
-                Accept Job
+                {loading ? "Processing..." : "Accept Job"}
               </button>
             )}
 
             {isFreelancer && job.status === "InProgress" && (
               <button
-                className="rounded-md border border-slate-300 px-3 py-1.5"
+                className="rounded-md border border-slate-300 px-3 py-1.5 disabled:opacity-50"
                 onClick={() => handleAction(() => submitWork(wallet, id))}
+                disabled={loading}
               >
-                Submit Work
+                {loading ? "Processing..." : "Submit Work"}
               </button>
             )}
 
             {isClient && job.status === "SubmittedForReview" && (
               <button
-                className="rounded-md border border-slate-300 px-3 py-1.5"
+                className="rounded-md border border-slate-300 px-3 py-1.5 disabled:opacity-50"
                 onClick={() => handleAction(() => approveWork(wallet, id))}
+                disabled={loading}
               >
-                Approve Work
+                {loading ? "Processing..." : "Approve Work"}
               </button>
             )}
 
             {isClient && job.status === "Open" && (
               <button
-                className="rounded-md border border-slate-300 px-3 py-1.5"
+                className="rounded-md border border-slate-300 px-3 py-1.5 disabled:opacity-50"
                 onClick={() => handleAction(() => cancelJob(wallet, id))}
+                disabled={loading}
               >
-                Cancel Job
+                {loading ? "Processing..." : "Cancel Job"}
               </button>
             )}
           </div>
