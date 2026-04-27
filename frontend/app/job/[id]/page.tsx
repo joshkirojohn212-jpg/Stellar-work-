@@ -1,6 +1,7 @@
 "use client";
 
 import { acceptJob, approveWork, cancelJob, getJob, submitWork } from "@/lib/contract";
+import { toXlm } from "@/lib/format";
 import { useWallet } from "@/lib/wallet-context";
 import type { Job } from "@/lib/types";
 import { useParams } from "next/navigation";
@@ -34,7 +35,7 @@ export default function JobDetailPage() {
           <p><strong>Status:</strong> {job.status}</p>
           <p><strong>Client:</strong> {job.client}</p>
           <p><strong>Freelancer:</strong> {job.freelancer ?? "Not assigned"}</p>
-          <p><strong>Amount:</strong> {job.amount} stroops</p>
+          <p><strong>Amount:</strong> {toXlm(job.amount)} XLM</p>
           <p><strong>Description hash:</strong> {job.description_hash}</p>
           <p><strong>Deadline:</strong> {job.deadline === "0" ? "No deadline" : new Date(Number(job.deadline) * 1000).toLocaleString()}</p>
 
