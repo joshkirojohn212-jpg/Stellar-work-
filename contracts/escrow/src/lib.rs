@@ -1082,6 +1082,90 @@ mod test {
         client.approve_work(&user, &job_id);
     }
 
+    // Fee rounding edge-case tests
+    //
+    // checked_mul_div computes: fee = amount * 250 / 10_000
+    // For very small amounts the integer division truncates to 0.
+
+    #[test]
+    fn approve_work_1_stroop_fee_rounds_to_zero() {
+        // 1 * 250 / 10_000 = 0  →  freelancer receives full 1 stroop, fee = 0
+        let (env, client, _, user, freelancer, native_token) = setup();
+        let asset = token::StellarAssetClient::new(&env, &native_token);
+        asset.mint(&user, &1i128);
+
+        let job_id = client.post_job(&user, &1i128, &hash(&env), &0u64, &native_token);
+        client.accept_job(&freelancer, &job_id);
+        client.submit_work(&freelancer, &job_id);
+
+        let token_client = token::Client::new(&env, &native_token);
+        let pre_balance = token_client.balance(&freelancer);
+        client.approve_work(&user, &job_id);
+        let post_balance = token_client.balance(&freelancer);
+
+        // fee rounds down to 0, so freelancer gets the full amount
+        assert_eq!(post_balance - pre_balance, 1, "freelancer should receive full 1 stroop when fee rounds to 0");
+        assert_eq!(client.get_fees(&native_token), 0, "accrued fee should be 0 for 1-stroop job");
+    }
+
+    #[test]
+    fn approve_work_39_stroops_fee_split() {
+        // 39 * 250 / 10_000 = 9_750 / 10_000 = 0  →  fee = 0, payout = 39
+        // First amount where fee > 0: 40 * 250 / 10_000 = 1  →  fee = 1, payout = 39
+        // Use 40 to get a non-trivial split, then also verify 39 rounds to 0.
+        let (env, client, _, user, freelancer, native_token) = setup();
+        let asset = token::StellarAssetClient::new(&env, &native_token);
+        asset.mint(&user, &100i128);
+
+        // 39 stroops: fee = 39*250/10_000 = 0, payout = 39
+        let job_id_39 = client.post_job(&user, &39i128, &hash(&env), &0u64, &native_token);
+        client.accept_job(&freelancer, &job_id_39);
+        client.submit_work(&freelancer, &job_id_39);
+
+        let token_client = token::Client::new(&env, &native_token);
+        let pre_39 = token_client.balance(&freelancer);
+        client.approve_work(&user, &job_id_39);
+        let post_39 = token_client.balance(&freelancer);
+
+        assert_eq!(post_39 - pre_39, 39, "39-stroop job: fee rounds to 0, freelancer gets all 39");
+        assert_eq!(client.get_fees(&native_token), 0, "39-stroop job: no fee accrued");
+
+        // 40 stroops: fee = 40*250/10_000 = 1, payout = 39
+        let job_id_40 = client.post_job(&user, &40i128, &hash(&env), &0u64, &native_token);
+        client.accept_job(&freelancer, &job_id_40);
+        client.submit_work(&freelancer, &job_id_40);
+
+        let pre_40 = token_client.balance(&freelancer);
+        client.approve_work(&user, &job_id_40);
+        let post_40 = token_client.balance(&freelancer);
+
+        assert_eq!(post_40 - pre_40, 39, "40-stroop job: payout = 39 after 1-stroop fee");
+        assert_eq!(client.get_fees(&native_token), 1, "40-stroop job: 1 stroop fee accrued");
+    }
+
+    #[test]
+    fn approve_work_large_amount_no_overflow() {
+        // i128::MAX / 2 is safely within range for checked_mul_div
+        // Use a large but representable amount: 1_000_000_000_000_000 stroops (1 billion XLM)
+        let large_amount: i128 = 1_000_000_000_000_000i128;
+        let expected_fee: i128 = large_amount * 250 / 10_000; // = 25_000_000_000_000
+        let expected_payout: i128 = large_amount - expected_fee;
+
+        let (env, client, _, user, freelancer, native_token) = setup();
+        let asset = token::StellarAssetClient::new(&env, &native_token);
+        asset.mint(&user, &large_amount);
+
+        let job_id = client.post_job(&user, &large_amount, &hash(&env), &0u64, &native_token);
+        client.accept_job(&freelancer, &job_id);
+        client.submit_work(&freelancer, &job_id);
+
+        let token_client = token::Client::new(&env, &native_token);
+        let pre_balance = token_client.balance(&freelancer);
+        client.approve_work(&user, &job_id);
+        let post_balance = token_client.balance(&freelancer);
+
+        assert_eq!(post_balance - pre_balance, expected_payout, "large amount: payout should be amount minus 2.5% fee");
+        assert_eq!(client.get_fees(&native_token), expected_fee, "large amount: fee should be exactly 2.5%");
     #[test]
     fn get_jobs_batch_returns_stable_order() {
         let (env, client, _, user, _, native_token) = setup();
