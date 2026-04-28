@@ -1,6 +1,7 @@
 "use client";
 
 import { postJob } from "@/lib/contract";
+import ErrorBanner from "@/components/ErrorBanner";
 import { useWallet } from "@/lib/wallet-context";
 import { useState } from "react";
 
@@ -119,7 +120,7 @@ export default function PostJobPage() {
         </button>
       </form>
 
-      {error && <p role="alert" className="rounded-md bg-red-100 p-3 text-sm text-red-700">{error}</p>}
+      {error && <ErrorBanner message={error} onDismiss={() => setError(null)} />}
       {success && <p role="status" aria-live="polite" className="rounded-md bg-green-100 p-3 text-sm text-green-700">{success}</p>}
     </section>
   );

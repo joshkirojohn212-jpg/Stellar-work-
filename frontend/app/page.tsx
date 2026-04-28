@@ -1,10 +1,11 @@
 "use client";
 
+import ErrorBanner from "@/components/ErrorBanner";
 import { acceptJob, getJob, getJobCount } from "@/lib/contract";
-import { useWallet } from "@/lib/wallet-context";
 import type { Job } from "@/lib/types";
+import { useWallet } from "@/lib/wallet-context";
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 function toXlm(stroops: string) {
   return (Number(stroops) / 10_000_000).toFixed(2);
@@ -17,27 +18,40 @@ export default function HomePage() {
   const [loading, setLoading] = useState(false);
   const [actionLoading, setActionLoading] = useState<number | null>(null);
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
   const [totalJobs, setTotalJobs] = useState(0);
-  const JOBS_PER_PAGE = 10;
 
-  const refresh = async (resetPage = true) => {
+  const totalPages = useMemo(
+    () => Math.max(1, Math.ceil(totalJobs / pageSize)),
+    [pageSize, totalJobs],
+  );
+
+  const refresh = useCallback(async () => {
     setLoading(true);
     setError(null);
+
     try {
       const count = await getJobCount();
       setTotalJobs(count);
 
-      const currentPage = resetPage ? 1 : page;
-      if (resetPage) setPage(1);
+      if (count === 0) {
+        setJobs([]);
+        return;
+      }
 
-      const endId = Math.max(1, count - (currentPage - 1) * JOBS_PER_PAGE);
-      const startId = Math.max(1, endId - JOBS_PER_PAGE + 1);
+      const maxPages = Math.max(1, Math.ceil(count / pageSize));
+      const safePage = Math.min(Math.max(1, page), maxPages);
+      if (safePage !== page) {
+        setPage(safePage);
+      }
 
-      // Fetch jobs in parallel for the current "page"
+      const endId = Math.max(1, count - (safePage - 1) * pageSize);
+      const startId = Math.max(1, endId - pageSize + 1);
+
       const idsToFetch = Array.from(
         { length: endId - startId + 1 },
-        (_, i) => String(startId + i)
-      ).reverse(); // Show newest first
+        (_, i) => String(startId + i),
+      ).reverse();
 
       const results = await Promise.all(
         idsToFetch.map(async (id) => {
@@ -47,39 +61,25 @@ export default function HomePage() {
           } catch {
             return null;
           }
-        })
+        }),
       );
 
-      const fetched = results.filter((r): r is { id: number; job: Job } => r !== null && r.job.status === "Open");
+      const fetched = results.filter(
+        (item): item is { id: number; job: Job } =>
+          item !== null && item.job.status === "Open",
+      );
 
-      if (resetPage) {
-        setJobs(fetched);
-      } else {
-        setJobs(prev => [...prev, ...fetched]);
-      }
+      setJobs(fetched);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to fetch jobs.");
     } finally {
       setLoading(false);
     }
-  };
+  }, [page, pageSize]);
 
   useEffect(() => {
     void refresh();
-  }, []);
-
-  const loadMore = () => {
-    const nextPage = page + 1;
-    setPage(nextPage);
-    // Note: We need to call refresh with the new page, but useEffect [page] would be cleaner
-    // However, refresh currently handles its own logic.
-  };
-
-  useEffect(() => {
-    if (page > 1) {
-      void refresh(false);
-    }
-  }, [page]);
+  }, [refresh]);
 
   function getDescription(hash: string): string {
     const stored = localStorage.getItem(`job-desc:${hash}`);
@@ -92,7 +92,8 @@ export default function HomePage() {
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-semibold">Open Jobs</h1>
         <button
-          onClick={() => refresh(true)}
+          type="button"
+          onClick={() => void refresh()}
           className="text-sm text-blue-600 hover:underline disabled:opacity-50"
           disabled={loading}
         >
@@ -100,14 +101,13 @@ export default function HomePage() {
         </button>
       </div>
 
-      {error && (
-        <div role="alert" className="rounded-md bg-red-100 p-3 text-sm text-red-700 flex justify-between items-center">
-          <span>{error}</span>
-          <button onClick={() => setError(null)} className="font-bold">×</button>
-        </div>
-      )}
+      {error && <ErrorBanner message={error} onDismiss={() => setError(null)} />}
 
-      {loading && jobs.length === 0 && <p role="status" aria-live="polite" className="text-sm text-slate-600">Loading jobs...</p>}
+      {loading && jobs.length === 0 && (
+        <p role="status" aria-live="polite" className="text-sm text-slate-600">
+          Loading jobs...
+        </p>
+      )}
 
       {!loading && jobs.length === 0 && !error && (
         <p className="text-sm text-slate-600">No open jobs found.</p>
@@ -115,12 +115,15 @@ export default function HomePage() {
 
       <div className="grid gap-4 md:grid-cols-2">
         {jobs.map(({ id, job }) => (
-          <article key={id} className="rounded-lg border border-slate-200 bg-white p-4 transition-shadow hover:shadow-md">
+          <article
+            key={id}
+            className="rounded-lg border border-slate-200 bg-white p-4 transition-shadow hover:shadow-md"
+          >
             <Link href={`/job/${id}`} className="block">
               <h2 className="text-lg font-medium hover:underline">Job #{id}</h2>
             </Link>
-            <p className="mt-2 text-sm text-slate-700 font-bold">{toXlm(job.amount)} XLM</p>
-            <p className="mt-1 text-sm text-slate-700 line-clamp-2">
+            <p className="mt-2 text-sm font-bold text-slate-700">{toXlm(job.amount)} XLM</p>
+            <p className="mt-1 line-clamp-2 text-sm text-slate-700">
               {getDescription(job.description_hash)}
             </p>
             <p className="mt-1 text-xs text-slate-500">
@@ -137,10 +140,12 @@ export default function HomePage() {
                 View Details
               </Link>
               <button
-                className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${actionLoading === id
-                    ? "bg-slate-100 text-slate-400 cursor-not-allowed"
+                type="button"
+                className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
+                  actionLoading === id
+                    ? "cursor-not-allowed bg-slate-100 text-slate-400"
                     : "bg-blue-600 text-white hover:bg-blue-700 active:bg-blue-800"
-                  }`}
+                }`}
                 onClick={async () => {
                   setError(null);
                   if (!wallet) {
@@ -152,14 +157,17 @@ export default function HomePage() {
                     }
                     return;
                   }
+
                   setActionLoading(id);
                   try {
                     await acceptJob(wallet, String(id));
-                    // Refresh current jobs to show it's gone
-                    await refresh(true);
+                    await refresh();
                   } catch (e) {
-                    console.error("Accept job error:", e);
-                    setError(e instanceof Error ? e.message : "Failed to accept job. Check your balance or contract state.");
+                    setError(
+                      e instanceof Error
+                        ? e.message
+                        : "Failed to accept job. Check your balance or contract state.",
+                    );
                   } finally {
                     setActionLoading(null);
                   }
@@ -174,15 +182,49 @@ export default function HomePage() {
         ))}
       </div>
 
-      {jobs.length > 0 && jobs.length < totalJobs && (
-        <div className="flex justify-center pt-4">
-          <button
-            onClick={loadMore}
-            disabled={loading}
-            className="rounded-md border border-slate-300 bg-white px-6 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
-          >
-            {loading ? "Loading..." : "Load More"}
-          </button>
+      {totalJobs > 0 && (
+        <div className="flex flex-col gap-3 pt-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-center gap-2 text-sm text-slate-600">
+            <label htmlFor="jobs-page-size">Page size:</label>
+            <select
+              id="jobs-page-size"
+              value={pageSize}
+              onChange={(event) => {
+                setPageSize(Number(event.target.value));
+                setPage(1);
+              }}
+              className="rounded-md border border-slate-300 bg-white px-2 py-1"
+              disabled={loading}
+            >
+              {[5, 10, 20].map((size) => (
+                <option key={size} value={size}>
+                  {size}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setPage((prev) => Math.max(1, prev - 1))}
+              disabled={loading || page <= 1}
+              className="rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+            >
+              Previous
+            </button>
+            <span className="text-sm text-slate-600">
+              Page {Math.min(page, totalPages)} of {totalPages}
+            </span>
+            <button
+              type="button"
+              onClick={() => setPage((prev) => Math.min(totalPages, prev + 1))}
+              disabled={loading || page >= totalPages}
+              className="rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+            >
+              Next
+            </button>
+          </div>
         </div>
       )}
     </section>
